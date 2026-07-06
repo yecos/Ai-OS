@@ -1,0 +1,32 @@
+{
+  "name": "agent_forge",
+  "description": "FORJA nuevos agentes al vuelo. Use cuando hayas resuelto una tarea escribiendo codigo en open_interpreter y quieras guardar esa solucion como una herramienta reutilizable para el futuro. Tambien para crear agentes nuevos desde cero. REQUIERE aprobacion humana siempre.",
+  "endpoint": "http://localhost:8021/execute",
+  "actions": [
+    {
+      "name": "create_agent",
+      "description": "Crea un nuevo agente completo: escribe su agent.json y main.py en la carpeta agents/. Requiere aprobacion humana.",
+      "requires_approval": true,
+      "parameters": {
+        "name": {"type": "string", "description": "Nombre del agente (sin espacios, lowercase, ej: pdf_converter)"},
+        "description": {"type": "string", "description": "Descripcion de que hace y cuando usarlo (la leera Hermes)"},
+        "port": {"type": "integer", "description": "Puerto donde correra el agente (ej: 8030, 8031...)"},
+        "actions": {"type": "array", "description": "Lista de acciones. Cada una: {name, description, parameters, requires_analysis}"},
+        "code": {"type": "string", "description": "Codigo Python completo del main.py del agente (debe ser FastAPI con /execute)"}
+      }
+    },
+    {
+      "name": "list_forged",
+      "description": "Lista los agentes creados por agent_forge (marca con metadata forged=true).",
+      "parameters": {}
+    },
+    {
+      "name": "delete_agent",
+      "description": "Elimina un agente forjado. Peligroso: requiere aprobacion.",
+      "requires_approval": true,
+      "parameters": {
+        "name": {"type": "string", "description": "Nombre del agente a eliminar"}
+      }
+    }
+  ]
+}

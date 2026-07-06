@@ -146,7 +146,7 @@ approval_manager = ApprovalManager()
 
 
 # --------------------------------------------------------------------
-# System Prompt
+# System Prompt — modo ONE-SHOT (legacy, sigue funcionando)
 # --------------------------------------------------------------------
 BASE_PROMPT = """You are Hermes, the core orchestrator of an AI Operating System.
 Your goal is to fulfill the user's requests by delegating tasks to specialized agents.
@@ -174,6 +174,55 @@ OUTPUT FORMAT (strict JSON):
     }
   ]
 }
+"""
+
+# --------------------------------------------------------------------
+# System Prompt — modo AUTÓNOMO (ReAct loop)
+# --------------------------------------------------------------------
+AUTONOMOUS_PROMPT = """You are Hermes, an AUTONOMOUS AI Operating System.
+Your mission: ACHIEVE the user's request by ANY means necessary. You NEVER give up.
+
+You operate in ITERATIONS. Each turn you receive:
+- The user's original request
+- The tools available (listed below)
+- The history of steps already taken and their results
+- Your remaining iterations budget
+
+Each turn you MUST respond with ONE of these JSON shapes:
+
+1. If the task is DONE:
+{
+  "done": true,
+  "summary": "Que lograste y como",
+  "next_steps_optional": "Sugerencia opcional para el usuario"
+}
+
+2. If you need to take ONE more step:
+{
+  "done": false,
+  "reasoning": "Por que este es el siguiente paso logico",
+  "next_step": {
+    "target_agent": "agent_name",
+    "action": "action_name",
+    "parameters": {"key": "value"}
+  }
+}
+
+CRITICAL AUTONOMY RULES:
+- You are NOT limited to the pre-installed tools. If no direct tool exists:
+  1. Use web_search.search to find how to do it on the internet
+  2. Use web_search.fetch_page to read a relevant page
+  3. Use open_interpreter.run_python to write code that does it
+  4. If the code works, use agent_forge.create_agent to save it as a reusable tool
+- If a step FAILS, read the error, understand why, and try a DIFFERENT approach.
+  Never repeat the exact same step expecting a different result.
+- Be efficient: prefer 1-2 direct steps over 10 indirect ones when possible.
+- Be safe: actions marked requires_approval will pause for human confirmation.
+- You have a LIMITED number of iterations. Use them wisely.
+- When you genuinely cannot achieve the task after trying, return done=true
+  with summary explaining what you tried and what blocked you.
+
+OUTPUT: A single valid JSON object. No markdown, no prose outside JSON.
 """
 
 
@@ -267,6 +316,11 @@ def normalize_plan(plan_data: dict[str, Any], user_text: str) -> dict[str, Any]:
 # --------------------------------------------------------------------
 class UserRequest(BaseModel):
     text: str
+
+
+class AutonomousRequest(BaseModel):
+    text: str
+    max_iterations: int = 10
 
 
 class ApprovalDecision(BaseModel):
@@ -489,6 +543,244 @@ async def process_command(request: UserRequest):
     }
     await ws_manager.broadcast({"event": "command.done", **response})
     return response
+
+
+# --------------------------------------------------------------------
+# Endpoint AUTÓNOMO — ReAct loop
+# --------------------------------------------------------------------
+@app.post("/command_react")
+async def process_command_autonomous(request: AutonomousRequest):
+    """Loop ReAct: Hermes decide un paso, lo ejecuta, observa, repite."""
+
+    tools_context = agent_manager.get_prompt_context()
+    full_system_prompt = AUTONOMOUS_PROMPT + "\n" + tools_context
+
+    await ws_manager.broadcast({"event": "user.command", "text": request.text, "mode": "autonomous"})
+
+    history: list[dict] = []  # cada item: {step, agent, action, parameters, result, status}
+    max_iter = max(1, min(request.max_iterations, 30))
+    consecutive_failures = 0
+    final_summary = None
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for iteration in range(1, max_iter + 1):
+            remaining = max_iter - iteration + 1
+            logger.info("[ReAct] Iteración %d/%d (quedan %d)", iteration, max_iter, remaining)
+
+            # 1. Construir el mensaje del usuario con el historial
+            user_msg = _build_react_user_message(request.text, history, remaining)
+
+            await ws_manager.broadcast({
+                "event": "react.thinking",
+                "iteration": iteration,
+                "remaining": remaining,
+            })
+
+            # 2. Llamar al LLM
+            try:
+                raw = await hermes.achat(
+                    system_prompt=full_system_prompt,
+                    user_message=user_msg,
+                    temperature=0.4,
+                    force_json=True,
+                )
+            except Exception as exc:
+                logger.error("[ReAct] LLM falló: %s", exc)
+                await ws_manager.broadcast({"event": "llm.error", "error": str(exc), "iteration": iteration})
+                return {"status": "error", "message": str(exc), "history": history, "iterations": iteration - 1}
+
+            await ws_manager.broadcast({"event": "llm.response", "raw": raw, "iteration": iteration})
+
+            # 3. Parsear respuesta
+            decision = HermesClient.parse_json_response(raw)
+            if decision is None:
+                logger.error("[ReAct] LLM no devolvió JSON válido: %s", raw[:200])
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    return {
+                        "status": "error",
+                        "message": "LLM devolvió JSON inválido 3 veces seguidas. Abortando.",
+                        "history": history,
+                        "iterations": iteration,
+                    }
+                continue
+
+            # 4. ¿Terminó?
+            if decision.get("done"):
+                final_summary = decision.get("summary", "Tarea completada.")
+                await ws_manager.broadcast({
+                    "event": "react.done",
+                    "iteration": iteration,
+                    "summary": final_summary,
+                    "next_steps": decision.get("next_steps_optional", ""),
+                })
+                logger.info("[ReAct] DONE en iteración %d: %s", iteration, final_summary[:100])
+                break
+
+            # 5. Ejecutar el next_step
+            next_step = decision.get("next_step")
+            if not next_step:
+                consecutive_failures += 1
+                continue
+
+            target_name = next_step.get("target_agent", "")
+            action = next_step.get("action", "")
+            params = next_step.get("parameters", {})
+            step_id = str(uuid.uuid4())
+            reasoning = decision.get("reasoning", "")
+
+            await ws_manager.broadcast({
+                "event": "step.start",
+                "step": iteration,
+                "step_id": step_id,
+                "agent": target_name,
+                "action": action,
+                "parameters": params,
+                "reasoning": reasoning,
+                "mode": "react",
+            })
+
+            # 5.a Verificar que el agente existe
+            agent_info = agent_manager.find_agent(target_name)
+            if not agent_info:
+                err = {"error": f"Agente '{target_name}' no encontrado."}
+                history.append({
+                    "iteration": iteration,
+                    "agent": target_name,
+                    "action": action,
+                    "parameters": params,
+                    "reasoning": reasoning,
+                    "result": err,
+                    "status": "error",
+                })
+                await ws_manager.broadcast({"event": "step.error", "step": iteration, "step_id": step_id, "error": err})
+                consecutive_failures += 1
+                continue
+
+            # 5.b ¿Requiere aprobación?
+            action_def = next((a for a in agent_info["actions"] if a["name"] == action), None)
+            needs_approval = (
+                APPROVAL_ENABLED
+                and action_def
+                and action_def.get("requires_approval", False)
+            )
+
+            if needs_approval:
+                await ws_manager.broadcast({
+                    "event": "step.pending_approval",
+                    "step": iteration,
+                    "step_id": step_id,
+                    "agent": target_name,
+                    "action": action,
+                    "parameters": params,
+                    "timeout_sec": APPROVAL_TIMEOUT,
+                })
+                try:
+                    await asyncio.wait_for(
+                        approval_manager.create(step_id),
+                        timeout=APPROVAL_TIMEOUT if APPROVAL_TIMEOUT > 0 else None,
+                    )
+                    await ws_manager.broadcast({"event": "step.approved", "step": iteration, "step_id": step_id})
+                except asyncio.TimeoutError:
+                    err = {"error": f"Timeout esperando aprobación ({APPROVAL_TIMEOUT}s)."}
+                    history.append({
+                        "iteration": iteration, "agent": target_name, "action": action,
+                        "parameters": params, "reasoning": reasoning, "result": err, "status": "timeout",
+                    })
+                    await ws_manager.broadcast({"event": "step.timeout", "step": iteration, "step_id": step_id})
+                    consecutive_failures += 1
+                    continue
+                except RuntimeError as exc:
+                    err = {"error": str(exc)}
+                    history.append({
+                        "iteration": iteration, "agent": target_name, "action": action,
+                        "parameters": params, "reasoning": reasoning, "result": err, "status": "rejected",
+                    })
+                    await ws_manager.broadcast({"event": "step.rejected", "step": iteration, "step_id": step_id, "reason": str(exc)})
+                    consecutive_failures += 1
+                    continue
+
+            # 5.c Ejecutar
+            endpoint = agent_info["endpoint"]
+            logger.info("[ReAct] Ejecutando %s → %s", target_name, action)
+            try:
+                resp = await client.post(endpoint, json={"action": action, "parameters": params})
+                resp.raise_for_status()
+                result = resp.json()
+                status = "success" if result.get("status") != "error" else "error"
+                if status == "error":
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 0
+            except httpx.HTTPError as exc:
+                result = {"error": f"Fallo llamando a {target_name}: {exc}"}
+                status = "error"
+                consecutive_failures += 1
+
+            history.append({
+                "iteration": iteration,
+                "agent": target_name,
+                "action": action,
+                "parameters": params,
+                "reasoning": reasoning,
+                "result": result,
+                "status": status,
+            })
+
+            await ws_manager.broadcast({
+                "event": "step.done",
+                "step": iteration,
+                "step_id": step_id,
+                "result": result,
+                "status": status,
+            })
+
+            # Circuit breaker: 3 fallos consecutivos
+            if consecutive_failures >= 3:
+                logger.warning("[ReAct] 3 fallos consecutivos. Abortando.")
+                final_summary = "Abortado tras 3 fallos consecutivos. Último error: " + str(result)[:200]
+                await ws_manager.broadcast({
+                    "event": "react.aborted",
+                    "reason": "3 fallos consecutivos",
+                    "iteration": iteration,
+                })
+                break
+
+    if final_summary is None:
+        final_summary = f"Alcanzadas {max_iter} iteraciones sin completar la tarea. Revisa el historial."
+
+    return {
+        "status": "success" if consecutive_failures < 3 else "partial",
+        "summary": final_summary,
+        "history": history,
+        "iterations_used": len(history),
+        "max_iterations": max_iter,
+    }
+
+
+def _build_react_user_message(original_request: str, history: list[dict], remaining: int) -> str:
+    """Construye el mensaje que se le envía al LLM en cada iteración."""
+    msg = f"USER REQUEST:\n{original_request}\n\n"
+    msg += f"ITERATIONS REMAINING: {remaining}\n\n"
+    if not history:
+        msg += "HISTORY: (none yet — this is your first step)\n\n"
+        msg += "Decide your FIRST step. If a direct tool exists, use it. If not, use web_search to learn how."
+    else:
+        msg += "HISTORY OF STEPS TAKEN:\n"
+        for h in history:
+            msg += f"\n--- Iteration {h['iteration']} ---\n"
+            msg += f"Agent: {h['agent']} | Action: {h['action']}\n"
+            msg += f"Parameters: {json.dumps(h['parameters'], ensure_ascii=False)}\n"
+            msg += f"Reasoning: {h.get('reasoning', '(none)')}\n"
+            msg += f"Status: {h['status']}\n"
+            result_str = json.dumps(h['result'], ensure_ascii=False)
+            if len(result_str) > 1500:
+                result_str = result_str[:1500] + "...[truncated]"
+            msg += f"Result: {result_str}\n"
+        msg += "\nBased on the history above, decide your NEXT step. "
+        msg += "If the task is now complete, return done=true. If a step failed, try a DIFFERENT approach."
+    msg += "\n\nRespond with ONE JSON object: {done: true, summary} OR {done: false, reasoning, next_step}."
+    return msg
 
 
 # --------------------------------------------------------------------

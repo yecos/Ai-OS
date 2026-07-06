@@ -1,0 +1,31 @@
+{
+  "name": "web_search",
+  "description": "Busca informacion en internet. Use SIEMPRE que no sepas como hacer algo, antes de rendirte. Ejemplos: 'como instalar X', 'API de Y', 'ejemplo de codigo para Z', 'que significa el error W'. Tambien para informacion actual: noticias, precios, eventos.",
+  "endpoint": "http://localhost:8020/execute",
+  "actions": [
+    {
+      "name": "search",
+      "description": "Busca en internet y devuelve los 5 resultados mas relevantes con titulo, URL y snippet.",
+      "parameters": {
+        "query": {"type": "string", "description": "Consulta de busqueda en lenguaje natural"},
+        "max_results": {"type": "integer", "description": "Numero maximo de resultados (default 5, max 20)"}
+      }
+    },
+    {
+      "name": "fetch_page",
+      "description": "Descarga el contenido de texto de una URL especifica. Use despues de search para leer una pagina concreta.",
+      "parameters": {
+        "url": {"type": "string", "description": "URL completa de la pagina a leer"},
+        "max_chars": {"type": "integer", "description": "Maximo de caracteres a devolver (default 8000)"}
+      }
+    },
+    {
+      "name": "search_code",
+      "description": "Busca fragmentos de codigo o ejemplos. Devuelve resultados de Stack Overflow, GitHub, etc.",
+      "parameters": {
+        "query": {"type": "string", "description": "Que codigo buscas, ej: 'python leer PDF', 'fastapi websocket example'"},
+        "max_results": {"type": "integer", "description": "Max resultados (default 5)"}
+      }
+    }
+  ]
+}

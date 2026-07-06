@@ -18,3 +18,6 @@ playwright>=1.40
 # === Agente Open Interpreter ===
 # Pesado — instala solo si vas a usarlo:
 # open-interpreter>=0.3
+
+# === Agente Web Search ===
+duckduckgo-search>=4.0.0
