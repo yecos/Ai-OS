@@ -1,0 +1,70 @@
+{
+  "name": "browser",
+  "description": "Controla un navegador web real (Chromium). Permite navegar, hacer click, escribir texto, tomar screenshots y extraer contenido de paginas. Use para tareas como: 'entra a Netflix y busca Breaking Bad', 'descarga el PDF de esta URL', 'hazme un screenshot de cnn.com'.",
+  "endpoint": "http://localhost:8004/execute",
+  "actions": [
+    {
+      "name": "navigate",
+      "description": "Abre una URL en el navegador.",
+      "parameters": {
+        "url": {"type": "string", "description": "URL completa, ej: https://www.google.com"}
+      }
+    },
+    {
+      "name": "click",
+      "description": "Hace click en un elemento. Use un selector CSS o texto visible.",
+      "parameters": {
+        "selector": {"type": "string", "description": "Selector CSS (#id, .class, button[text()='Play']) o texto del elemento"}
+      }
+    },
+    {
+      "name": "type_text",
+      "description": "Escribe texto en un campo de entrada.",
+      "parameters": {
+        "selector": {"type": "string", "description": "Selector CSS del campo input/textarea"},
+        "text": {"type": "string", "description": "Texto a escribir"},
+        "submit": {"type": "boolean", "description": "Si true, presiona Enter al final"}
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Toma una captura de pantalla completa de la pagina actual.",
+      "parameters": {
+        "output_path": {"type": "string", "description": "Ruta donde guardar el PNG"}
+      }
+    },
+    {
+      "name": "get_text",
+      "description": "Extrae el texto visible de la pagina actual o de un selector especifico.",
+      "parameters": {
+        "selector": {"type": "string", "description": "Selector CSS opcional. Si se omite, devuelve todo el texto visible."}
+      }
+    },
+    {
+      "name": "extract_links",
+      "description": "Devuelve todos los enlaces visibles en la pagina actual.",
+      "parameters": {}
+    },
+    {
+      "name": "wait_for",
+      "description": "Espera a que aparezca un elemento o un tiempo fijo.",
+      "parameters": {
+        "selector": {"type": "string", "description": "Selector CSS a esperar"},
+        "timeout_ms": {"type": "integer", "description": "Timeout en milisegundos (default 5000)"}
+      }
+    },
+    {
+      "name": "scroll",
+      "description": "Hace scroll en la pagina.",
+      "parameters": {
+        "direction": {"type": "string", "description": "up o down"},
+        "amount": {"type": "integer", "description": "Pixels a scrollear (default 500)"}
+      }
+    },
+    {
+      "name": "close",
+      "description": "Cierra el navegador y libera recursos.",
+      "parameters": {}
+    }
+  ]
+}

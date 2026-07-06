@@ -1,0 +1,44 @@
+{
+  "name": "memory",
+  "description": "Memoria persistente del usuario. Guarda hechos, preferencias, documentos y permite recuperarlos por busqueda semantica. Use SIEMPRE que el usuario mencione algo personal, una preferencia, o pida 'recordar' algo. Tambien use para buscar en documentos previamente indexados.",
+  "endpoint": "http://localhost:8003/execute",
+  "actions": [
+    {
+      "name": "remember",
+      "description": "Guarda un hecho o pieza de informacion asociada al usuario. Ej: 'Carlos prefiere respuestas en espanol', 'El cumpleanos de mama es 15 de marzo'.",
+      "parameters": {
+        "content": {"type": "string", "description": "La informacion a recordar, redactada como hecho atomico"},
+        "category": {"type": "string", "description": "Categoria opcional: preferences, facts, documents, people, projects"}
+      }
+    },
+    {
+      "name": "recall",
+      "description": "Busca en la memoria por significado (no por keyword exacta). Ej: 'que se sobre Carlos?', 'preferencias de idioma'.",
+      "parameters": {
+        "query": {"type": "string", "description": "Pregunta o concepto a buscar"},
+        "limit": {"type": "integer", "description": "Maximo numero de recuerdos a devolver (default 5)"}
+      }
+    },
+    {
+      "name": "forget",
+      "description": "Elimina un recuerdo especifico por ID. Peligroso: requiere aprobacion humana.",
+      "requires_approval": true,
+      "parameters": {
+        "id": {"type": "string", "description": "ID del recuerdo a eliminar"}
+      }
+    },
+    {
+      "name": "list_all",
+      "description": "Lista todos los recuerdos almacenados con su ID y categoria.",
+      "parameters": {}
+    },
+    {
+      "name": "index_document",
+      "description": "Indexa un archivo de texto/PDF/Markdown en la memoria para RAG posterior.",
+      "parameters": {
+        "path": {"type": "string", "description": "Ruta absoluta del archivo a indexar"},
+        "category": {"type": "string", "description": "Categoria bajo la cual indexar (default: documents)"}
+      }
+    }
+  ]
+}

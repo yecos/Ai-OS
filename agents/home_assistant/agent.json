@@ -1,0 +1,64 @@
+{
+  "name": "home_assistant",
+  "description": "Controla dispositivos del hogar via Home Assistant: luces, TV, aire acondicionado, sensores, camaras, switches. Use para: 'enciende la luz del salon', 'apaga el TV', 'pon el aire a 22 grados', 'cual es la temperatura del cuarto'.",
+  "endpoint": "http://localhost:8005/execute",
+  "actions": [
+    {
+      "name": "turn_on",
+      "description": "Enciende un dispositivo. Peligroso si el dispositivo es critico.",
+      "requires_approval": true,
+      "parameters": {
+        "entity_id": {"type": "string", "description": "ID de entidad, ej: light.living_room, switch.fan"}
+      }
+    },
+    {
+      "name": "turn_off",
+      "description": "Apaga un dispositivo. Peligroso si el dispositivo es critico.",
+      "requires_approval": true,
+      "parameters": {
+        "entity_id": {"type": "string", "description": "ID de entidad, ej: light.living_room, switch.fan"}
+      }
+    },
+    {
+      "name": "toggle",
+      "description": "Cambia el estado de un dispositivo (on<->off).",
+      "requires_approval": true,
+      "parameters": {
+        "entity_id": {"type": "string", "description": "ID de entidad"}
+      }
+    },
+    {
+      "name": "get_state",
+      "description": "Consulta el estado actual de un dispositivo o todos.",
+      "parameters": {
+        "entity_id": {"type": "string", "description": "ID especifico (opcional). Si se omite, lista entidades recientes."}
+      }
+    },
+    {
+      "name": "set_value",
+      "description": "Setea un valor numerico (brillo, temperatura, volumen).",
+      "requires_approval": true,
+      "parameters": {
+        "entity_id": {"type": "string", "description": "ID de entidad, ej: climate.bedroom"},
+        "value": {"type": "number", "description": "Valor numerico a setear"}
+      }
+    },
+    {
+      "name": "call_service",
+      "description": "Llama un servicio arbitrario de Home Assistant. Avanzado.",
+      "requires_approval": true,
+      "parameters": {
+        "domain": {"type": "string", "description": "Dominio del servicio, ej: light, climate, media_player"},
+        "service": {"type": "string", "description": "Nombre del servicio, ej: turn_on, set_temperature"},
+        "data": {"type": "object", "description": "Datos adicionales del servicio"}
+      }
+    },
+    {
+      "name": "list_entities",
+      "description": "Lista todas las entidades disponibles con su estado actual.",
+      "parameters": {
+        "domain": {"type": "string", "description": "Filtrar por dominio (light, switch, climate, etc.) - opcional"}
+      }
+    }
+  ]
+}

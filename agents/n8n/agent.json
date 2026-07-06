@@ -1,0 +1,20 @@
+{
+  "name": "n8n",
+  "description": "Dispara flujos de trabajo en n8n (integraciones con Gmail, WhatsApp, Calendar, Dropbox, Slack, etc.). Use para: 'envia un correo a Carlos', 'crea un evento en mi calendario', 'envia un WhatsApp'. Los flujos deben estar pre-configurados en n8n con su webhook.",
+  "endpoint": "http://localhost:8006/execute",
+  "actions": [
+    {
+      "name": "trigger_workflow",
+      "description": "Dispara un webhook de n8n pasando datos arbitrarios.",
+      "parameters": {
+        "webhook_id": {"type": "string", "description": "ID o path del webhook en n8n, ej: send-email o create-event"},
+        "data": {"type": "object", "description": "Payload JSON a enviar al workflow"}
+      }
+    },
+    {
+      "name": "list_workflows",
+      "description": "Lista los workflows disponibles en n8n (requiere API key).",
+      "parameters": {}
+    }
+  ]
+}

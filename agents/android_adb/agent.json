@@ -1,0 +1,46 @@
+{
+  "name": "android_adb",
+  "description": "Controla un dispositivo Android conectado por USB o red mediante ADB (Android Debug Bridge).",
+  "endpoint": "http://localhost:8002/execute",
+  "actions": [
+    {
+      "name": "list_devices",
+      "description": "Lista los dispositivos Android conectados y reconocidos por ADB.",
+      "parameters": {}
+    },
+    {
+      "name": "screenshot",
+      "description": "Toma una captura de pantalla del dispositivo y la guarda en la ruta indicada.",
+      "parameters": {
+        "output_path": {
+          "type": "string",
+          "description": "Ruta local donde guardar el PNG, ej: /tmp/screenshot.png"
+        },
+        "device": {
+          "type": "string",
+          "description": "Serial del dispositivo (opcional si solo hay uno conectado)"
+        }
+      }
+    },
+    {
+      "name": "tap",
+      "description": "Simula un toque en coordenadas (x, y) de la pantalla del dispositivo.",
+      "parameters": {
+        "x": {"type": "integer", "description": "Coordenada X en pixels"},
+        "y": {"type": "integer", "description": "Coordenada Y en pixels"},
+        "device": {"type": "string", "description": "Serial del dispositivo (opcional)"}
+      }
+    },
+    {
+      "name": "open_app",
+      "description": "Abre una aplicación en el dispositivo Android por su package name.",
+      "parameters": {
+        "package": {
+          "type": "string",
+          "description": "Package name de la app, ej: com.android.chrome, com.whatsapp"
+        },
+        "device": {"type": "string", "description": "Serial del dispositivo (opcional)"}
+      }
+    }
+  ]
+}

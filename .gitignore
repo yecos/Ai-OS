@@ -1,0 +1,71 @@
+# ============================================================
+# AI OS — .gitignore
+# ============================================================
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === Node / Next.js ===
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+.npm
+.pnp.*
+
+# === Environment & secrets ===
+.env
+.env.local
+.env.*.local
+.env.production
+.env.test
+*.key
+*.pem
+secrets/
+
+# === Runtime data ===
+data/
+*.db
+*.sqlite
+*.sqlite3
+chroma-db/
+memory_db/
+browser_profile/
+
+# === Logs ===
+*.log
+logs/
+dev.log
+server.log
+
+# === OS ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === Agent Browser / dev artifacts ===
+screenshots/
+*.webm
+trace.zip

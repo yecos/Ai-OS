@@ -1,0 +1,51 @@
+{
+  "name": "pc_controller",
+  "description": "Controla archivos, ventanas, mouse y teclado en el sistema operativo local.",
+  "endpoint": "http://localhost:8001/execute",
+  "actions": [
+    {
+      "name": "organize_folder",
+      "description": "Organiza los archivos de una carpeta agrupandolos por su extension. Crea subcarpetas como PDF/, JPG/, TXT/, etc.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Ruta absoluta de la carpeta a organizar, ej: C:/Users/User/Desktop o /home/user/Downloads"
+        }
+      }
+    },
+    {
+      "name": "open_app",
+      "description": "Abre una aplicacion en el sistema operativo.",
+      "parameters": {
+        "app_name": {
+          "type": "string",
+          "description": "Nombre del ejecutable o app, ej: notepad, chrome, spotify, code"
+        }
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "Lista el contenido de una carpeta (archivos y subcarpetas).",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Ruta absoluta del directorio a inspeccionar"
+        }
+      }
+    },
+    {
+      "name": "create_file",
+      "description": "Crea un archivo de texto con el contenido indicado.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Ruta absoluta del archivo a crear"
+        },
+        "content": {
+          "type": "string",
+          "description": "Contenido de texto a escribir dentro del archivo"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "open_interpreter",
+  "description": "Ejecuta codigo Python arbitrario en la PC local. Use para tareas complejas que los otros agentes no pueden hacer: manipulacion avanzada de archivos, procesamiento de datos, scripts personalizados, automatizacion del sistema. REQUIERE aprobacion humana siempre.",
+  "endpoint": "http://localhost:8007/execute",
+  "actions": [
+    {
+      "name": "run_python",
+      "description": "Ejecuta codigo Python y devuelve stdout, stderr y resultado. Peligroso: requiere aprobacion.",
+      "requires_approval": true,
+      "parameters": {
+        "code": {"type": "string", "description": "Codigo Python a ejecutar"},
+        "timeout": {"type": "integer", "description": "Timeout en segundos (default 30, max 300)"}
+      }
+    },
+    {
+      "name": "run_shell",
+      "description": "Ejecuta un comando de shell (bash/powershell). Muy peligroso: requiere aprobacion.",
+      "requires_approval": true,
+      "parameters": {
+        "command": {"type": "string", "description": "Comando a ejecutar"},
+        "timeout": {"type": "integer", "description": "Timeout en segundos (default 30)"}
+      }
+    }
+  ]
+}
