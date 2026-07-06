@@ -31,6 +31,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -84,7 +85,12 @@ class WSManager:
         await ws.accept()
         async with self._lock:
             self.active.append(ws)
-        await ws.send_text("Conectado al Core de AI OS. Esperando eventos...")
+        await ws.send_text(
+            json.dumps(
+                {"event": "system.boot", "agents": agent_manager.list_agents()},
+                ensure_ascii=False,
+            )
+        )
 
     async def disconnect(self, ws: WebSocket) -> None:
         async with self._lock:
@@ -151,6 +157,8 @@ Rules:
   explain in `thought` what was missing.
 - Never invent agent names or actions — only use the ones listed below.
 - If multiple steps are needed, list them in order inside `plan`.
+- Every item inside `plan` MUST be an object with exactly these keys:
+  `target_agent`, `action`, and `parameters`. Never return strings in `plan`.
 - Some actions require human approval before execution — they are marked
   `requires_approval: true`. Use them when truly needed, but be aware the user
   will be asked to confirm.
@@ -167,6 +175,91 @@ OUTPUT FORMAT (strict JSON):
   ]
 }
 """
+
+
+def fallback_plan_for(text: str) -> Optional[dict[str, Any]]:
+    """Deterministic router for common commands when a local LLM drifts."""
+
+    raw = text.strip()
+    lower = raw.lower()
+
+    def step(agent: str, action: str, parameters: dict[str, Any]) -> dict[str, Any]:
+        return {"target_agent": agent, "action": action, "parameters": parameters}
+
+    if any(word in lower for word in ("recuerda", "recordar", "memoriza", "remember")):
+        content = re.sub(r"^(recuerda|recordar|memoriza|remember)\s+(que\s+)?", "", raw, flags=re.I).strip()
+        return {
+            "thought": "Guardaré la información indicada usando el agente de memoria.",
+            "plan": [step("memory", "remember", {"content": content or raw, "category": "facts"})],
+        }
+
+    if any(word in lower for word in ("lista", "listar", "muestra", "archivos", "carpeta", "folder")):
+        match = re.search(r"([A-Za-z]:[/\\][^\n\r]+)$", raw)
+        path = match.group(1).strip().strip('\"') if match else os.path.expanduser("~")
+        return {
+            "thought": f"Listaré los archivos de {path} usando el controlador de PC.",
+            "plan": [step("pc_controller", "list_files", {"path": path})],
+        }
+
+    if any(word in lower for word in ("organiza", "ordena", "organize")):
+        match = re.search(r"([A-Za-z]:[/\\][^\n\r]+)$", raw)
+        path = match.group(1).strip().strip('\"') if match else os.path.join(os.path.expanduser("~"), "Desktop")
+        return {
+            "thought": f"Organizaré la carpeta {path} con el controlador de PC.",
+            "plan": [step("pc_controller", "organize_folder", {"path": path})],
+        }
+
+    if any(word in lower for word in ("navega", "entra", "abre", "browser", "web", "página", "pagina")):
+        match = re.search(r"https?://\S+|(?:[\w-]+\.)+[a-z]{2,}(?:/\S*)?", raw, flags=re.I)
+        url = match.group(0) if match else "https://example.com"
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        return {
+            "thought": f"Abriré {url} en el navegador y extraeré el texto visible.",
+            "plan": [
+                step("browser", "navigate", {"url": url}),
+                step("browser", "get_text", {}),
+            ],
+        }
+
+    if "adb" in lower or "android" in lower or "dispositivo" in lower:
+        return {
+            "thought": "Consultaré los dispositivos Android conectados por ADB.",
+            "plan": [step("android_adb", "list_devices", {})],
+        }
+
+    if "home assistant" in lower or "entidad" in lower or "estado" in lower:
+        return {
+            "thought": "Consultaré entidades/estado en Home Assistant.",
+            "plan": [step("home_assistant", "list_entities", {})],
+        }
+
+    return None
+
+
+def normalize_plan(plan_data: dict[str, Any], user_text: str) -> dict[str, Any]:
+    """Validate LLM plan shape and fall back for common malformed outputs."""
+
+    plan = plan_data.get("plan", [])
+    valid = isinstance(plan, list) and all(
+        isinstance(item, dict)
+        and isinstance(item.get("target_agent"), str)
+        and isinstance(item.get("action"), str)
+        and isinstance(item.get("parameters", {}), dict)
+        for item in plan
+    )
+    if valid:
+        return plan_data
+
+    fallback = fallback_plan_for(user_text)
+    if fallback:
+        fallback["thought"] += " (Plan determinístico usado porque el LLM devolvió un plan inválido.)"
+        return fallback
+
+    return {
+        "thought": "El LLM devolvió un plan inválido y no hay regla determinística para esta solicitud.",
+        "plan": [],
+    }
 
 
 # --------------------------------------------------------------------
@@ -277,9 +370,15 @@ async def process_command(request: UserRequest):
     # 2. Parsear
     plan_data = HermesClient.parse_json_response(raw_response)
     if plan_data is None:
-        msg = "Hermes no devolvió un JSON válido."
-        await ws_manager.broadcast({"event": "parse.error", "raw": raw_response})
-        return {"status": "error", "message": msg, "raw": raw_response}
+        fallback = fallback_plan_for(request.text)
+        if fallback is None:
+            msg = "Hermes no devolvió un JSON válido."
+            await ws_manager.broadcast({"event": "parse.error", "raw": raw_response})
+            return {"status": "error", "message": msg, "raw": raw_response}
+        plan_data = fallback
+        await ws_manager.broadcast({"event": "plan.fallback", "reason": "invalid_json", "plan": plan_data})
+    else:
+        plan_data = normalize_plan(plan_data, request.text)
 
     thought = plan_data.get("thought", "")
     plan = plan_data.get("plan", [])
@@ -287,6 +386,8 @@ async def process_command(request: UserRequest):
     if not plan:
         await ws_manager.broadcast({"event": "plan.empty", "thought": thought})
         return {"status": "no_action", "thought": thought, "results": []}
+
+    await ws_manager.broadcast({"event": "plan.ready", "thought": thought, "plan": plan})
 
     # 3. Ejecutar cada step
     results: list[dict] = []
@@ -381,11 +482,13 @@ async def process_command(request: UserRequest):
                 {"event": "step.done", "step": idx, "step_id": step_id, "result": result}
             )
 
-    return {
+    response = {
         "status": "success",
         "thought": thought,
         "results": results,
     }
+    await ws_manager.broadcast({"event": "command.done", **response})
+    return response
 
 
 # --------------------------------------------------------------------

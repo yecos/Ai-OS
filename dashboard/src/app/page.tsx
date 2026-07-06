@@ -28,7 +28,7 @@ const KERNEL_URL = "ws://localhost:8000/ws";
 // ============================================================
 // Agent icon mapping
 // ============================================================
-const AGENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+const AGENT_ICONS: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
   pc_controller: MonitorSmartphone,
   android_adb: Smartphone,
   memory: Database,

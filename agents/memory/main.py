@@ -87,18 +87,28 @@ class _OllamaEmbedder:
         self.base_url = base_url.rstrip("/")
 
     def __call__(self, input: list[str]) -> list[list[float]]:
+        return self.embed_documents(input)
+
+    def _embed_one(self, text: str) -> list[float]:
         import httpx
 
-        embeddings: list[list[float]] = []
         with httpx.Client(timeout=30.0) as client:
-            for text in input:
-                resp = client.post(
-                    f"{self.base_url}/api/embeddings",
-                    json={"model": self.model, "prompt": text},
-                )
-                resp.raise_for_status()
-                embeddings.append(resp.json()["embedding"])
-        return embeddings
+            resp = client.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": self.model, "prompt": text},
+            )
+            resp.raise_for_status()
+            return resp.json()["embedding"]
+
+    def embed_documents(self, input: list[str]) -> list[list[float]]:
+        return [self._embed_one(text) for text in input]
+
+    def embed_query(self, input: str | list[str]) -> list[float] | list[list[float]]:
+        # ChromaDB 1.x llama embed_query(input=<lista de textos>) para query_texts.
+        # Versiones/implementaciones tipo LangChain suelen pasar un solo string.
+        if isinstance(input, list):
+            return self.embed_documents(input)
+        return self._embed_one(input)
 
     def name(self) -> str:
         return f"ollama_{self.model}"

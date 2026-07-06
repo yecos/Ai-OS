@@ -81,7 +81,7 @@ const DEMO_AGENTS: AgentInfo[] = [
 
 let logIdCounter = 0;
 function nextLogId() {
-  return `log-${++logIdCounter}`;
+  return `log-${Date.now()}-${++logIdCounter}`;
 }
 
 // ============================================================
@@ -91,7 +91,10 @@ export function useAios(kernelUrl: string) {
   const [state, setState] = useState<AiosState>(INITIAL);
   const wsRef = useRef<WebSocket | null>(null);
   const demoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectedRef = useRef(false);
+  const demoModeRef = useRef(false);
 
   const addLog = useCallback((event: string, data: Record<string, unknown>) => {
     setState((s) => ({
@@ -122,18 +125,28 @@ export function useAios(kernelUrl: string) {
       runDemoCommand(text);
       return;
     }
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    // For real kernel, we POST to /command. But for the dashboard,
-    // we send the command via WS (the kernel would need to support this,
-    // OR we POST). We'll POST via fetch.
-    fetch(`${kernelUrl.replace("ws", "http").replace("/ws", "")}/command`, {
+    const baseUrl = kernelUrl.replace("ws", "http").replace("/ws", "");
+    addLog("user.command", { text });
+    setState((s) => ({ ...s, thought: null, steps: [], thinking: true }));
+    fetch(`${baseUrl}/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
-    }).catch((e) => addLog("fetch.error", { error: String(e) }));
-    addLog("user.command", { text });
-    setState((s) => ({ ...s, thought: null, steps: [], thinking: true }));
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+        addLog("command.http_result", data as Record<string, unknown>);
+        setState((s) => ({
+          ...s,
+          thinking: false,
+          thought: typeof data?.thought === "string" ? data.thought : s.thought,
+        }));
+      })
+      .catch((e) => {
+        addLog("fetch.error", { error: String(e) });
+        setState((s) => ({ ...s, thinking: false }));
+      });
   }, [state.demoMode, kernelUrl, addLog, runDemoCommand]);
 
   const approve = useCallback((stepId: string) => {
@@ -168,6 +181,16 @@ export function useAios(kernelUrl: string) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        connectedRef.current = true;
+        demoModeRef.current = false;
+        if (demoTimerRef.current) {
+          clearTimeout(demoTimerRef.current);
+          demoTimerRef.current = null;
+        }
+        if (initialFallbackRef.current) {
+          clearTimeout(initialFallbackRef.current);
+          initialFallbackRef.current = null;
+        }
         setState((s) => ({ ...s, connected: true, demoMode: false }));
         addLog("ws.connected", { url: kernelUrl });
       };
@@ -186,12 +209,16 @@ export function useAios(kernelUrl: string) {
       };
 
       ws.onclose = () => {
+        connectedRef.current = false;
         setState((s) => ({ ...s, connected: false }));
         addLog("ws.disconnected", {});
         // Try demo mode after a short delay
         if (!demoTimerRef.current) {
           demoTimerRef.current = setTimeout(() => {
-            startDemoMode(addLog, setState);
+            if (!connectedRef.current && !demoModeRef.current) {
+              demoModeRef.current = true;
+              startDemoMode(addLog, setState);
+            }
           }, 1500);
         }
       };
@@ -202,15 +229,16 @@ export function useAios(kernelUrl: string) {
 
   useEffect(() => {
     // Initial: try real connection, fall back to demo
-    const timeout = setTimeout(() => {
-      if (!state.connected && !state.demoMode) {
+    initialFallbackRef.current = setTimeout(() => {
+      if (!connectedRef.current && !demoModeRef.current) {
+        demoModeRef.current = true;
         startDemoMode(addLog, setState);
       }
     }, 2500);
     connect();
 
     return () => {
-      clearTimeout(timeout);
+      if (initialFallbackRef.current) clearTimeout(initialFallbackRef.current);
       if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       if (wsRef.current) {
@@ -245,11 +273,31 @@ function handleKernelEvent(
         return { ...s, agents: (msg.agents as AgentInfo[]) || [] };
       case "user.command":
         return { ...s, thought: null, steps: [], thinking: true };
-      case "llm.response":
-        return { ...s, thinking: false };
+      case "plan.ready":
+      case "plan.fallback":
+        return {
+          ...s,
+          thinking: false,
+          thought: typeof msg.thought === "string"
+            ? msg.thought
+            : typeof (msg.plan as { thought?: unknown })?.thought === "string"
+              ? (msg.plan as { thought: string }).thought
+              : s.thought,
+        };
+      case "plan.empty":
+        return { ...s, thinking: false, thought: (msg.thought as string) || "No hay acciones para ejecutar." };
+      case "command.done":
+        return { ...s, thinking: false, thought: (msg.thought as string) || s.thought };
+      case "llm.response": {
+        let parsedThought: string | null = null;
+        if (typeof msg.raw === "string") {
+          try { parsedThought = JSON.parse(msg.raw).thought || null; } catch {}
+        }
+        return { ...s, thinking: false, thought: parsedThought || s.thought };
+      }
       case "llm.error":
       case "parse.error":
-        return { ...s, thinking: false };
+        return { ...s, thinking: false, thought: String(msg.thought || ""), steps: [] };
       case "step.start": {
         const step: PlanStep = {
           step: msg.step as number,
